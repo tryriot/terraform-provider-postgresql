@@ -49,8 +49,8 @@ type QueryAble interface {
 // single quotes in SQL (i.e. fmt.Sprintf(`'%s'`, pqQuoteLiteral("str"))).  See
 // quote_literal_internal() in postgresql/backend/utils/adt/quote.c:77.
 func pqQuoteLiteral(in string) string {
-	in = strings.ReplaceAll(in, `\`, `\\`)
-	in = strings.ReplaceAll(in, `'`, `''`)
+	in = strings.Replace(in, `\\`, `\\`, -1)
+	in = strings.Replace(in, `'`, `''`, -1)
 	return in
 }
 
@@ -672,4 +672,24 @@ func quoteTableName(tableName string) string {
 		parts[i] = pq.QuoteIdentifier(parts[i])
 	}
 	return strings.Join(parts, ".")
+}
+func relationExists(db QueryAble, schemaName, objectName string) (bool, error) {
+	var exists bool
+	query := `
+		SELECT 1
+		FROM   pg_catalog.pg_class c
+		JOIN   pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE  n.nspname = $1
+		AND    c.relname = $2
+		AND    c.relkind = 'r' -- 'r' for table
+	`
+	err := db.QueryRow(query, schemaName, objectName).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not check if relation %s.%s exists: %w", schemaName, objectName, err)
+	}
+
+	return true, nil
 }

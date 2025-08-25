@@ -253,6 +253,10 @@ func resourcePostgreSQLGrantDelete(db *DBConnection, d *schema.ResourceData) err
 	if err := withRolesGranted(txn, owners, func() error {
 		return revokeRolePrivileges(txn, d, false)
 	}); err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "42P01" {
+			log.Printf("[DEBUG] Relation does not exist, assuming grant is gone.")
+			return nil
+		}
 		return err
 	}
 
@@ -719,6 +723,24 @@ func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData, usePrevious bool)
 		}
 	}
 
+	objectType := getter("object_type").(string)
+	if objectType == "table" {
+		objects := getter("objects").(*schema.Set)
+		if objects.Len() > 0 {
+			schemaName := getter("schema").(string)
+			for _, object := range objects.List() {
+				exists, err := relationExists(txn, schemaName, object.(string))
+				if err != nil {
+					return err
+				}
+				if !exists {
+					log.Printf("[DEBUG] Table %s.%s does not exist, skipping revoke.", schemaName, object.(string))
+					return nil
+				}
+			}
+		}
+	}
+
 	query := createRevokeQuery(getter)
 	if len(query) == 0 {
 		// Query is empty, don't run anything
@@ -729,7 +751,7 @@ func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData, usePrevious bool)
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "42P01" {
 			// Table/relation doesn't exist, so there's nothing to revoke - this is fine
 			log.Printf("[DEBUG] Relation does not exist when revoking privileges, ignoring: %v", err)
-			return nil
+			return err
 		}
 		return fmt.Errorf("could not execute revoke query: %w", err)
 	}
