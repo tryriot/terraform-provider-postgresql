@@ -553,6 +553,14 @@ func TestAccPostgresqlGrantObjects(t *testing.T) {
 				),
 			},
 			{
+				Config: fmt.Sprintf(testGrant, `[]`),
+				Check: resource.ComposeTestCheckFunc(
+					func(s *terraform.State) error {
+						return dropTestTable(t, dbName, "test_schema.test_table")
+					},
+				),
+			},
+			{
 				Config:  fmt.Sprintf(testGrant, `[]`),
 				Destroy: true,
 				Check: resource.ComposeTestCheckFunc(
@@ -564,6 +572,18 @@ func TestAccPostgresqlGrantObjects(t *testing.T) {
 			},
 		},
 	})
+}
+
+func dropTestTable(t *testing.T, dbName, tableName string) error {
+	config := getTestConfig(t)
+	db, err := sql.Open("postgres", config.connStr(dbName))
+	if err != nil {
+		return fmt.Errorf("could not connect to database %s: %w", dbName, err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(fmt.Sprintf("DROP TABLE %s", tableName))
+	return err
 }
 
 func TestAccPostgresqlGrantObjectsError(t *testing.T) {

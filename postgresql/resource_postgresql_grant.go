@@ -725,6 +725,12 @@ func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData, usePrevious bool)
 		return nil
 	}
 	if _, err := txn.Exec(query); err != nil {
+		// Check if this is a "relation does not exist" error (PostgreSQL error code 42P01)
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "42P01" {
+			// Table/relation doesn't exist, so there's nothing to revoke - this is fine
+			log.Printf("[DEBUG] Relation does not exist when revoking privileges, ignoring: %v", err)
+			return nil
+		}
 		return fmt.Errorf("could not execute revoke query: %w", err)
 	}
 	return nil
