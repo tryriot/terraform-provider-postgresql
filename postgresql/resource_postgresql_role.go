@@ -37,6 +37,7 @@ const (
 	roleRolesAttr                           = "roles"
 	roleSearchPathAttr                      = "search_path"
 	roleStatementTimeoutAttr                = "statement_timeout"
+	roleLogStatementAttr                    = "log_statement"
 	roleAssumeRoleAttr                      = "assume_role"
 
 	// Deprecated options
@@ -187,6 +188,12 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Optional:     true,
 				Description:  "Abort any statement that takes more than the specified number of milliseconds",
 				ValidateFunc: validation.IntAtLeast(0),
+			},
+			roleLogStatementAttr: {
+				Type:         schema.TypeString,
+				Optional:     true,
+				Description:  "Sets which SQL statements are logged for this role",
+				ValidateFunc: validation.StringInSlice([]string{"none", "ddl", "mod", "all"}, false),
 			},
 			roleAssumeRoleAttr: {
 				Type:        schema.TypeString,
@@ -366,6 +373,10 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
+	if err = setLogStatement(txn, d); err != nil {
+		return err
+	}
+
 	if err = setAssumeRole(txn, d); err != nil {
 		return err
 	}
@@ -530,6 +541,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
 	}
 
 	d.Set(roleIdleInTransactionSessionTimeoutAttr, idleInTransactionSessionTimeout)
+	d.Set(roleLogStatementAttr, readLogStatement(roleConfig))
 
 	d.SetId(roleName)
 
@@ -591,6 +603,18 @@ func readStatementTimeout(roleConfig pq.ByteaArray) (int, error) {
 		}
 	}
 	return 0, nil
+}
+
+// readLogStatement searches for a log_statement entry in the rolconfig array.
+// In case no such value is present, it returns empty string.
+func readLogStatement(roleConfig pq.ByteaArray) string {
+	for _, v := range roleConfig {
+		config := string(v)
+		if value, ok := strings.CutPrefix(config, roleLogStatementAttr+"="); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 // readAssumeRole searches for a role entry in the rolconfig array.
@@ -742,6 +766,10 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
 	}
 
 	if err = setIdleInTransactionSessionTimeout(txn, d); err != nil {
+		return err
+	}
+
+	if err = setLogStatement(txn, d); err != nil {
 		return err
 	}
 
@@ -1114,6 +1142,31 @@ func setIdleInTransactionSessionTimeout(txn *sql.Tx, d *schema.ResourceData) err
 		)
 		if _, err := txn.Exec(sql); err != nil {
 			return fmt.Errorf("could not reset idle_in_transaction_session_timeout for %s: %w", roleName, err)
+		}
+	}
+	return nil
+}
+
+func setLogStatement(txn *sql.Tx, d *schema.ResourceData) error {
+	if !d.HasChange(roleLogStatementAttr) {
+		return nil
+	}
+
+	roleName := d.Get(roleNameAttr).(string)
+	logStatement := d.Get(roleLogStatementAttr).(string)
+	if logStatement != "" {
+		sql := fmt.Sprintf(
+			"ALTER ROLE %s SET log_statement TO %s", pq.QuoteIdentifier(roleName), pq.QuoteLiteral(logStatement),
+		)
+		if _, err := txn.Exec(sql); err != nil {
+			return fmt.Errorf("could not set log_statement %s for %s: %w", logStatement, roleName, err)
+		}
+	} else {
+		sql := fmt.Sprintf(
+			"ALTER ROLE %s RESET log_statement", pq.QuoteIdentifier(roleName),
+		)
+		if _, err := txn.Exec(sql); err != nil {
+			return fmt.Errorf("could not reset log_statement for %s: %w", roleName, err)
 		}
 	}
 	return nil
