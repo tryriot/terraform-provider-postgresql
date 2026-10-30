@@ -16,7 +16,7 @@ on:
       - 'v*'
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       -
         name: Checkout
@@ -40,8 +40,16 @@ jobs:
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: latest
+          version: v2.19.0
           args: release --clean
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      -
+        name: Verify checksum signature
+        run: gpg --verify dist/*_SHA256SUMS.sig dist/*_SHA256SUMS
+      -
+        name: Publish release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
