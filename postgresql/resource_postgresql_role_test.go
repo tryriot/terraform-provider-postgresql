@@ -12,6 +12,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/lib/pq"
 )
 
 func TestAccPostgresqlRole_Basic(t *testing.T) {
@@ -47,6 +48,7 @@ func TestAccPostgresqlRole_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "skip_reassign_owned", "false"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "statement_timeout", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "idle_in_transaction_session_timeout", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "log_statement", ""),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "assume_role", ""),
 
 					resource.TestCheckResourceAttr("postgresql_role.role_with_create_database", "name", "role_with_create_database"),
@@ -146,6 +148,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "idle_in_transaction_session_timeout", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "log_statement", ""),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "assume_role", ""),
 					testAccCheckRoleCanLogin(t, "update_role", "toto"),
 				),
@@ -167,6 +170,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.0", "mysearchpath"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "30000"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "idle_in_transaction_session_timeout", "60000"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "log_statement", ""),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "assume_role", "group_role"),
 					testAccCheckRoleCanLogin(t, "update_role2", "titi"),
 				),
@@ -185,6 +189,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "idle_in_transaction_session_timeout", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "log_statement", ""),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "assume_role", ""),
 					testAccCheckRoleCanLogin(t, "update_role", "toto"),
 				),
@@ -606,4 +611,58 @@ resource "postgresql_role" "switch_role" {
 			},
 		},
 	})
+}
+
+func TestAccPostgresqlRole_LogStatement(t *testing.T) {
+	configWith := `
+resource "postgresql_role" "log_statement_role" {
+  name          = "log_statement_role"
+  login         = true
+  log_statement = "all"
+}
+`
+	configWithout := `
+resource "postgresql_role" "log_statement_role" {
+  name  = "log_statement_role"
+  login = true
+}
+`
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testSuperuserPreCheck(t)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: configWith,
+				Check:  resource.TestCheckResourceAttr("postgresql_role.log_statement_role", "log_statement", "all"),
+			},
+			{
+				Config: configWithout,
+				Check:  resource.TestCheckResourceAttr("postgresql_role.log_statement_role", "log_statement", ""),
+			},
+		},
+	})
+}
+
+func TestReadLogStatement(t *testing.T) {
+	cases := []struct {
+		name       string
+		roleConfig pq.ByteaArray
+		expected   string
+	}{
+		{"unset", nil, ""},
+		{"set", pq.ByteaArray{[]byte("statement_timeout=60000"), []byte("log_statement=all")}, "all"},
+		{"sample rate only", pq.ByteaArray{[]byte("log_statement_sample_rate=0.5")}, ""},
+		{"sample rate before", pq.ByteaArray{[]byte("log_statement_sample_rate=0.5"), []byte("log_statement=ddl")}, "ddl"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := readLogStatement(c.roleConfig); got != c.expected {
+				t.Fatalf("readLogStatement() = %q, expected %q", got, c.expected)
+			}
+		})
+	}
 }
