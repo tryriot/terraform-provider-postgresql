@@ -48,6 +48,7 @@ func TestAccPostgresqlRole_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "skip_reassign_owned", "false"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "statement_timeout", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "idle_in_transaction_session_timeout", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "transaction_timeout", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "log_statement", ""),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "assume_role", ""),
 
@@ -662,6 +663,63 @@ func TestReadLogStatement(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := readLogStatement(c.roleConfig); got != c.expected {
 				t.Fatalf("readLogStatement() = %q, expected %q", got, c.expected)
+			}
+		})
+	}
+}
+
+func TestAccPostgresqlRole_TransactionTimeout(t *testing.T) {
+	configWith := `
+resource "postgresql_role" "transaction_timeout_role" {
+  name                = "transaction_timeout_role"
+  login               = true
+  transaction_timeout = 900000
+}
+`
+	configWithout := `
+resource "postgresql_role" "transaction_timeout_role" {
+  name  = "transaction_timeout_role"
+  login = true
+}
+`
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featureTransactionTimeout)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: configWith,
+				Check:  resource.TestCheckResourceAttr("postgresql_role.transaction_timeout_role", "transaction_timeout", "900000"),
+			},
+			{
+				Config: configWithout,
+				Check:  resource.TestCheckResourceAttr("postgresql_role.transaction_timeout_role", "transaction_timeout", "0"),
+			},
+		},
+	})
+}
+
+func TestReadTransactionTimeout(t *testing.T) {
+	cases := []struct {
+		name       string
+		roleConfig pq.ByteaArray
+		expected   int
+	}{
+		{"unset", nil, 0},
+		{"set", pq.ByteaArray{[]byte("statement_timeout=60000"), []byte("transaction_timeout=900000")}, 900000},
+		{"idle timeout only", pq.ByteaArray{[]byte("idle_in_transaction_session_timeout=300000")}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := readTransactionTimeout(c.roleConfig)
+			if err != nil {
+				t.Fatalf("readTransactionTimeout() returned error: %v", err)
+			}
+			if got != c.expected {
+				t.Fatalf("readTransactionTimeout() = %d, expected %d", got, c.expected)
 			}
 		})
 	}
