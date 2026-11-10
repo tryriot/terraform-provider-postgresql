@@ -49,8 +49,8 @@ type QueryAble interface {
 // single quotes in SQL (i.e. fmt.Sprintf(`'%s'`, pqQuoteLiteral("str"))).  See
 // quote_literal_internal() in postgresql/backend/utils/adt/quote.c:77.
 func pqQuoteLiteral(in string) string {
-	in = strings.Replace(in, `\\`, `\\`, -1)
-	in = strings.Replace(in, `'`, `''`, -1)
+	in = strings.ReplaceAll(in, `\\`, `\\`)
+	in = strings.ReplaceAll(in, `'`, `''`)
 	return in
 }
 
