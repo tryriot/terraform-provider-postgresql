@@ -580,7 +580,7 @@ func dropTestTable(t *testing.T, dbName, tableName string) error {
 	if err != nil {
 		return fmt.Errorf("could not connect to database %s: %w", dbName, err)
 	}
-	defer db.Close()
+	defer closeDB(t, db)
 
 	_, err = db.Exec(fmt.Sprintf("DROP TABLE %s", tableName))
 	return err
