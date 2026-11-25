@@ -17,6 +17,7 @@ on:
 jobs:
   goreleaser:
     runs-on: ubuntu-24.04
+    environment: release
     steps:
       -
         name: Checkout
